@@ -1,0 +1,77 @@
+name: Self-test
+on: workflow_dispatch
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke — US routed request
+        uses: ./
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: US
+          command: |
+            CODE=$(curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w '%{http_code}')
+            echo "status=$CODE"
+            [ "$CODE" = "301" ]
+
+      - name: Smoke — DE routed request
+        uses: ./
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: DE
+          command: |
+            CODE=$(curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w '%{http_code}')
+            echo "status=$CODE"
+            [ "$CODE" = "301" ]
+
+      - name: Compound command — both parts routed
+        uses: ./
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: US
+          command: 'curl -s --max-time 15 https://ipinfo.io/country && echo " — compound OK"'
+
+      - name: Child exit-code propagation
+        id: fail_check
+        uses: ./
+        continue-on-error: true
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: US
+          command: 'exit 42'
+
+      - name: Verify child failure surfaced
+        shell: bash
+        run: |
+          if [ "${{ steps.fail_check.outcome }}" != "failure" ]; then
+            echo "Expected failure, got: ${{ steps.fail_check.outcome }}"
+            exit 1
+          fi
+          echo "Exit-code propagation confirmed"
+
+      - name: Invalid country rejected
+        id: bad_country
+        uses: ./
+        continue-on-error: true
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: INVALID
+          command: 'echo should not run'
+
+      - name: Verify invalid country was rejected
+        shell: bash
+        run: |
+          if [ "${{ steps.bad_country.outcome }}" != "failure" ]; then
+            echo "Expected failure for invalid country, got: ${{ steps.bad_country.outcome }}"
+            exit 1
+          fi
+          echo "Country validation confirmed"
