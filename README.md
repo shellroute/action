@@ -11,9 +11,8 @@ Shellroute is a metered service. You need a [Shellroute account](https://shellro
 ```yaml
 steps:
   - uses: shellroute/action@v1
-    env:
-      SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
     with:
+      api-key: ${{ secrets.SHELLROUTE_API_KEY }}
       country: DE
       command: curl -sI https://your-site.example/
 ```
@@ -22,9 +21,8 @@ Compound commands stay inside the same route:
 
 ```yaml
   - uses: shellroute/action@v1
-    env:
-      SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
     with:
+      api-key: ${{ secrets.SHELLROUTE_API_KEY }}
       country: US
       command: 'curl -sI https://store.google.com/ && curl -s https://ipinfo.io/country'
 ```
@@ -33,6 +31,7 @@ Compound commands stay inside the same route:
 
 | Input | Required | Default | Description |
 |---|---|---|---|
+| `api-key` | yes | — | Shellroute API key (pass `${{ secrets.SHELLROUTE_API_KEY }}`) |
 | `country` | yes | — | Two-letter country code (US, DE, GB, etc.) |
 | `command` | yes | — | Command to run through the proxy |
 | `version` | no | `0.1.5` | Shellroute CLI version to install |
@@ -53,7 +52,7 @@ Linux hosted runners (`ubuntu-latest`). macOS is expected to work but untested. 
 
 The `command` input is executed as shell code. Use fixed, trusted commands — do not pass untrusted PR titles, issue text, or commit messages into `command`.
 
-Keep `SHELLROUTE_API_KEY` in GitHub Actions secrets, not in inputs or workflow source.
+Pass `SHELLROUTE_API_KEY` from GitHub Actions secrets via the `api-key` input. GitHub masks secret values in logs.
 
 ## Limits
 

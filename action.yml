@@ -11,6 +11,9 @@ inputs:
   command:
     description: 'Command to run through the proxy'
     required: true
+  api-key:
+    description: 'Shellroute API key (pass ${{ secrets.SHELLROUTE_API_KEY }})'
+    required: true
   version:
     description: 'Shellroute CLI version to install'
     required: false
@@ -41,7 +44,7 @@ runs:
       env:
         SR_COUNTRY: ${{ inputs.country }}
         SR_COMMAND: ${{ inputs.command }}
-        SHELLROUTE_API_KEY: ${{ env.SHELLROUTE_API_KEY }}
+        SHELLROUTE_API_KEY: ${{ inputs.api-key }}
       run: |
         if ! [[ "$SR_COUNTRY" =~ ^[A-Za-z]{2}$ ]]; then
           echo "::error::Invalid country code: $SR_COUNTRY"
