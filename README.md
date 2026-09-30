@@ -34,7 +34,7 @@ Compound commands stay inside the same route:
 | `api-key` | yes | — | Shellroute API key (pass `${{ secrets.SHELLROUTE_API_KEY }}`) |
 | `country` | yes | — | Two-letter country code (US, DE, GB, etc.) |
 | `command` | yes | — | Command to run through the proxy |
-| `version` | no | `0.1.5` | Shellroute CLI version to install |
+| `version` | no | `0.1.6` | Shellroute CLI version to install |
 
 ## Output
 

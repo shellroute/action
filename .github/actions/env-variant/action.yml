@@ -1,8 +1,9 @@
-name: 'Shellroute Run'
-description: 'Run a command through a country-specific proxy'
-branding:
-  icon: 'globe'
-  color: 'blue'
+# TEST FIXTURE ONLY — not the public action. Identical to ../../../action.yml
+# except that it has no api-key input and sets nothing named SHELLROUTE_API_KEY
+# itself. It tests whether the calling step's `env:` reaches a composite
+# action's run steps as inherited process environment.
+name: 'Shellroute Run (env fixture)'
+description: 'Test fixture: same as the public action, without the api-key input'
 
 inputs:
   country:
@@ -11,22 +12,19 @@ inputs:
   command:
     description: 'Command to run through the proxy'
     required: true
-  api-key:
-    description: 'Shellroute API key from your repo secrets'
-    required: true
   version:
     description: 'Shellroute CLI version to install'
     required: false
     default: '0.1.6'
 
-outputs:
-  exit-code:
-    description: 'Exit code of the proxied command'
-    value: ${{ steps.run.outputs.exit-code }}
-
 runs:
   using: 'composite'
   steps:
+    - name: Wiring check (prints set/unset, never the value)
+      shell: bash
+      run: |
+        if [ -n "${SHELLROUTE_API_KEY:-}" ]; then echo "SHELLROUTE_API_KEY: set"; else echo "SHELLROUTE_API_KEY: unset"; fi
+
     - name: Install shellroute
       shell: bash
       env:
@@ -37,20 +35,16 @@ runs:
           exit 1
         fi
         npm install -g "shellroute@$SR_VERSION"
+        shellroute --version
 
     - name: Run through proxy
-      id: run
       shell: bash
       env:
         SR_COUNTRY: ${{ inputs.country }}
         SR_COMMAND: ${{ inputs.command }}
-        SHELLROUTE_API_KEY: ${{ inputs.api-key }}
       run: |
         if ! [[ "$SR_COUNTRY" =~ ^[A-Za-z]{2}$ ]]; then
           echo "::error::Invalid country code: $SR_COUNTRY"
           exit 1
         fi
-        rc=0
-        shellroute run --no-stat "$SR_COUNTRY" -- bash -c "$SR_COMMAND" || rc=$?
-        echo "exit-code=$rc" >> "$GITHUB_OUTPUT"
-        exit $rc
+        shellroute run --no-stat "$SR_COUNTRY" -- bash -c "$SR_COMMAND"

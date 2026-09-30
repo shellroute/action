@@ -1,6 +1,10 @@
 name: Self-test
 on: workflow_dispatch
 
+# One manual run = five metered sessions at most (US, DE, compound, exit-code,
+# env fixture). Output is limited to status codes, redirect URLs, the CLI
+# version, and set/unset. Logs are public.
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -8,25 +12,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Smoke — US routed request
+      # Routing smoke test, not an application regression: the assertion is the
+      # ipinfo classification of the exit address. Google's redirect is printed
+      # for information only — on 2026-09-30 a DE exit received a 302 to a
+      # consent page rather than the 301 ?hl=de seen in earlier dated examples.
+      - name: Smoke — US routed request (input contract)
+        id: us_check
+        if: always()
         uses: ./
         with:
           api-key: ${{ secrets.SHELLROUTE_API_KEY }}
           country: US
           command: |
-            CODE=$(curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w '%{http_code}')
-            echo "status=$CODE"
-            [ "$CODE" = "301" ]
+            C=$(curl -s --connect-timeout 15 --max-time 30 https://ipinfo.io/country)
+            echo "exit country: $C"
+            curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w 'store.google.com: %{http_code} %{redirect_url}\n'
+            [ "$C" = "US" ]
 
-      - name: Smoke — DE routed request
+      - name: Smoke — DE routed request (input contract)
+        id: de_check
+        if: always()
         uses: ./
         with:
           api-key: ${{ secrets.SHELLROUTE_API_KEY }}
           country: DE
           command: |
-            CODE=$(curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w '%{http_code}')
-            echo "status=$CODE"
-            [ "$CODE" = "301" ]
+            C=$(curl -s --connect-timeout 15 --max-time 30 https://ipinfo.io/country)
+            echo "exit country: $C"
+            curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w 'store.google.com: %{http_code} %{redirect_url}\n'
+            [ "$C" = "DE" ]
 
       - name: Compound command — both parts routed
         uses: ./
@@ -70,3 +84,27 @@ jobs:
             exit 1
           fi
           echo "Country validation confirmed"
+
+      # Contract question: does the calling step's env reach a composite action
+      # as inherited shell environment? Test-only fixture, no api-key input.
+      - name: Env fixture — inherited SHELLROUTE_API_KEY, US route
+        id: env_variant
+        if: always()
+        continue-on-error: true
+        uses: ./.github/actions/env-variant
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: US
+          command: 'C=$(curl -s --connect-timeout 15 --max-time 30 https://ipinfo.io/country); echo "exit country: $C"; [ "$C" = "US" ]'
+
+      - name: Report both contract variants (fail if either was skipped)
+        if: always()
+        shell: bash
+        run: |
+          echo "input contract: US=${{ steps.us_check.outcome }} DE=${{ steps.de_check.outcome }}"
+          echo "env fixture:    ${{ steps.env_variant.outcome }}"
+          for o in "${{ steps.us_check.outcome }}" "${{ steps.de_check.outcome }}" "${{ steps.env_variant.outcome }}"; do
+            [ "$o" = "skipped" ] && { echo "a contract variant was skipped — not a valid comparison"; exit 1; }
+          done
+          [ "${{ steps.us_check.outcome }}" = "success" ] && [ "${{ steps.de_check.outcome }}" = "success" ] || exit 1
