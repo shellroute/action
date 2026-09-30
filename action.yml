@@ -12,7 +12,7 @@ inputs:
     description: 'Command to run through the proxy'
     required: true
   api-key:
-    description: 'Shellroute API key (pass ${{ secrets.SHELLROUTE_API_KEY }})'
+    description: 'Shellroute API key from your repo secrets'
     required: true
   version:
     description: 'Shellroute CLI version to install'
