@@ -1,6 +1,10 @@
 name: Self-test
 on: workflow_dispatch
 
+# One manual run = five metered sessions at most (US, DE, compound, exit-code,
+# env fixture). Output is limited to status codes, redirect URLs, the CLI
+# version, and set/unset. Logs are public.
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -8,25 +12,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Smoke — US routed request
+      # Routing smoke test, not an application regression: the assertion is the
+      # ipinfo classification of the exit address. Google's redirect is printed
+      # for information only — on 2026-09-30 a DE exit received a 302 to a
+      # consent page rather than the 301 ?hl=de seen in earlier dated examples.
+      - name: Smoke — US routed request (input contract)
+        id: us_check
+        if: always()
         uses: ./
         with:
           api-key: ${{ secrets.SHELLROUTE_API_KEY }}
           country: US
           command: |
-            CODE=$(curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w '%{http_code}')
-            echo "status=$CODE"
-            [ "$CODE" = "301" ]
+            C=$(curl -s --connect-timeout 15 --max-time 30 https://ipinfo.io/country)
+            echo "exit country: $C"
+            curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w 'store.google.com: %{http_code} %{redirect_url}\n'
+            [ "$C" = "US" ]
 
-      - name: Smoke — DE routed request
+      - name: Smoke — DE routed request (input contract)
+        id: de_check
+        if: always()
         uses: ./
         with:
           api-key: ${{ secrets.SHELLROUTE_API_KEY }}
           country: DE
           command: |
-            CODE=$(curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w '%{http_code}')
-            echo "status=$CODE"
-            [ "$CODE" = "301" ]
+            C=$(curl -s --connect-timeout 15 --max-time 30 https://ipinfo.io/country)
+            echo "exit country: $C"
+            curl -sI --connect-timeout 15 --max-time 30 https://store.google.com/ -o /dev/null -w 'store.google.com: %{http_code} %{redirect_url}\n'
+            [ "$C" = "DE" ]
 
       - name: Compound command — both parts routed
         uses: ./
@@ -44,14 +58,19 @@ jobs:
           country: US
           command: 'exit 42'
 
-      - name: Verify child failure surfaced
+      - name: Verify child exit code 42 propagated
         shell: bash
         run: |
+          echo "outcome=${{ steps.fail_check.outcome }} exit-code=${{ steps.fail_check.outputs.exit-code }}"
           if [ "${{ steps.fail_check.outcome }}" != "failure" ]; then
-            echo "Expected failure, got: ${{ steps.fail_check.outcome }}"
+            echo "Expected the step to fail, got: ${{ steps.fail_check.outcome }}"
             exit 1
           fi
-          echo "Exit-code propagation confirmed"
+          if [ "${{ steps.fail_check.outputs.exit-code }}" != "42" ]; then
+            echo "Step failed but not with the child's exit code 42 — propagation NOT confirmed"
+            exit 1
+          fi
+          echo "Exit-code propagation confirmed: 42"
 
       - name: Invalid country rejected
         id: bad_country
@@ -70,3 +89,47 @@ jobs:
             exit 1
           fi
           echo "Country validation confirmed"
+
+      # Contract question: does the calling step's env reach a composite action
+      # as inherited shell environment? Test-only fixture, no api-key input. It
+      # is a diagnostic: it classifies its outcome into outputs and never fails
+      # after install, so the verdict below is explicit, not read off the badge.
+      - name: Env fixture — inherited SHELLROUTE_API_KEY, US route
+        id: env_variant
+        if: always()
+        continue-on-error: true
+        uses: ./.github/actions/env-variant
+        env:
+          SHELLROUTE_API_KEY: ${{ secrets.SHELLROUTE_API_KEY }}
+        with:
+          country: US
+          command: 'C=$(curl -s --connect-timeout 15 --max-time 30 https://ipinfo.io/country); echo "exit country: $C"; [ "$C" = "US" ]'
+
+      # Verdicts. The job status reflects the PUBLIC contract steps only
+      # (US/DE smoke, exit code, country validation). The env contract verdict is
+      # printed and written to the job summary; a green job never implies a
+      # working env contract, and a wiring or auth problem is not a routing one.
+      - name: Verdicts (public contract sets job status; env contract is reported, never inferred)
+        if: always()
+        shell: bash
+        run: |
+          us="${{ steps.us_check.outcome }}"; de="${{ steps.de_check.outcome }}"
+          envo="${{ steps.env_variant.outcome }}"; wiring="${{ steps.env_variant.outputs.wiring }}"
+          result="${{ steps.env_variant.outputs.result }}"; rc="${{ steps.env_variant.outputs.rc }}"
+          case "$result" in
+            routed-ok)      envv="ENV_CONTRACT: verified — inherited env reached the CLI and the US route classified as US" ;;
+            route-mismatch) envv="ENV_CONTRACT: verified (auth ok) — but exit classification was not US (routing/classification issue, not a contract issue)" ;;
+            auth-missing)   [ "$wiring" = set ] && envv="ENV_CONTRACT: NOT verified — key was inherited by the step but the CLI reported Not authenticated" || envv="ENV_CONTRACT: inconclusive — wiring unset, fixture or secret problem" ;;
+            auth-rejected)  envv="ENV_CONTRACT: inconclusive — key delivered but rejected by the service (secret problem, not transport)" ;;
+            *)              envv="ENV_CONTRACT: inconclusive — fixture outcome=$envo wiring=$wiring result=$result rc=$rc" ;;
+          esac
+          {
+            echo "## Self-test verdicts"
+            echo "- PUBLIC_CONTRACT (api-key input): US=$us DE=$de"
+            echo "- $envv"
+            echo "- A red US/DE step with 'exit country:' in its log is a routing/classification failure; with 'Not authenticated' it is an auth/wiring failure."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          for o in "$us" "$de" "$envo"; do
+            [ "$o" = "skipped" ] && { echo "a contract variant was skipped — not a valid comparison"; exit 1; }
+          done
+          [ "$us" = "success" ] && [ "$de" = "success" ]

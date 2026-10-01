@@ -1,0 +1,82 @@
+# TEST FIXTURE ONLY — not the public action. Same install and run shape as
+# ../../../action.yml, but with no api-key input and nothing named
+# SHELLROUTE_API_KEY set inside; it tests whether the calling step's `env:`
+# reaches a composite action's run steps as inherited process environment.
+#
+# It is a diagnostic: after installing, it never fails the step. It classifies
+# what happened into outputs so the workflow can report the env contract
+# unambiguously instead of inferring it from a red or green badge.
+name: 'Shellroute Run (env fixture)'
+description: 'Test fixture: same as the public action, without the api-key input'
+
+inputs:
+  country:
+    description: 'ISO country code (e.g. US, DE, GB)'
+    required: true
+  command:
+    description: 'Command to run through the proxy'
+    required: true
+  version:
+    description: 'Shellroute CLI version to install'
+    required: false
+    default: '0.1.6'
+
+outputs:
+  wiring:
+    description: 'set if SHELLROUTE_API_KEY was inherited, unset otherwise (value never printed)'
+    value: ${{ steps.wiring.outputs.wiring }}
+  result:
+    description: 'routed-ok | route-mismatch | auth-missing | auth-rejected | other'
+    value: ${{ steps.run.outputs.result }}
+  rc:
+    description: 'exit code of shellroute run'
+    value: ${{ steps.run.outputs.rc }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Wiring check (prints set/unset, never the value)
+      id: wiring
+      shell: bash
+      run: |
+        if [ -n "${SHELLROUTE_API_KEY:-}" ]; then w=set; else w=unset; fi
+        echo "SHELLROUTE_API_KEY: $w"
+        echo "wiring=$w" >> "$GITHUB_OUTPUT"
+
+    - name: Install shellroute
+      shell: bash
+      env:
+        SR_VERSION: ${{ inputs.version }}
+      run: |
+        if ! [[ "$SR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Invalid version format: $SR_VERSION"
+          exit 1
+        fi
+        npm install -g "shellroute@$SR_VERSION"
+        shellroute --version
+
+    - name: Run through proxy and classify the outcome
+      id: run
+      shell: bash
+      env:
+        SR_COUNTRY: ${{ inputs.country }}
+        SR_COMMAND: ${{ inputs.command }}
+      run: |
+        if ! [[ "$SR_COUNTRY" =~ ^[A-Za-z]{2}$ ]]; then
+          echo "::error::Invalid country code: $SR_COUNTRY"
+          exit 1
+        fi
+        set +e
+        out=$(shellroute run --no-stat "$SR_COUNTRY" -- bash -c "$SR_COMMAND" 2>&1)
+        rc=$?
+        set -e
+        printf '%s\n' "$out"
+        if [ "$rc" -eq 0 ]; then result=routed-ok
+        elif printf '%s' "$out" | grep -q "Not authenticated"; then result=auth-missing
+        elif printf '%s' "$out" | grep -q "Invalid API key"; then result=auth-rejected
+        elif printf '%s' "$out" | grep -q "exit country:"; then result=route-mismatch
+        else result=other
+        fi
+        echo "env fixture result: $result (rc=$rc)"
+        echo "result=$result" >> "$GITHUB_OUTPUT"
+        echo "rc=$rc" >> "$GITHUB_OUTPUT"
