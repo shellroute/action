@@ -1,5 +1,5 @@
 name: 'Shellroute Run'
-description: 'Run a command through a country-specific proxy'
+description: 'Run a trusted shell command through a Shellroute country route in GitHub Actions.'
 branding:
   icon: 'globe'
   color: 'blue'
