@@ -25,7 +25,7 @@ A routed run opens one metered Shellroute session and consumes Shellroute credit
 - `country`: required. Two-letter country code such as `US`, `DE`, or `GB`.
 - `command`: required. Trusted shell command to run through the route.
 - `api-key`: required. Shellroute API key. Pass it from a GitHub Actions secret.
-- `version`: optional. Shellroute CLI version to install. Defaults to `0.1.6`.
+- `version`: optional. Shellroute CLI version to install. Defaults to `latest`, the newest published release. Set a release number such as `0.2.1` to pin one.
 
 ## Output
 

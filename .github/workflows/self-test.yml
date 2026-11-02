@@ -4,6 +4,8 @@ on: workflow_dispatch
 # One manual run = five metered sessions at most (US, DE, compound, exit-code,
 # env fixture). Output is limited to status codes, redirect URLs, the CLI
 # version, and set/unset. Logs are public.
+# Every routed step installs the default CLI version (latest); the env fixture
+# prints the version it installed.
 
 jobs:
   test:
@@ -89,6 +91,27 @@ jobs:
             exit 1
           fi
           echo "Country validation confirmed"
+
+      # Install-time check, opens no session: the version input must be
+      # 'latest' (the default) or a release number.
+      - name: Invalid version rejected
+        id: bad_version
+        uses: ./
+        continue-on-error: true
+        with:
+          api-key: ${{ secrets.SHELLROUTE_API_KEY }}
+          country: US
+          version: 'not-a-version'
+          command: 'echo should not run'
+
+      - name: Verify invalid version was rejected
+        shell: bash
+        run: |
+          if [ "${{ steps.bad_version.outcome }}" != "failure" ]; then
+            echo "Expected failure for invalid version, got: ${{ steps.bad_version.outcome }}"
+            exit 1
+          fi
+          echo "Version validation confirmed"
 
       # Contract question: does the calling step's env reach a composite action
       # as inherited shell environment? Test-only fixture, no api-key input. It
